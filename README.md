@@ -95,7 +95,7 @@ Actual Open: 110.60, Pred Open: 110.17 | Actual Close: 110.73, Pred Close: 111.1
 ...
 ```
 
-![LSTM vs Actual](./sources/lstm_predictions.png)
+![LSTM vs Actual](./assets/css/lstm_predictions.png)
 
 ---
 
