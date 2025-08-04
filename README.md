@@ -95,7 +95,7 @@ Actual Open: 110.60, Pred Open: 110.17 | Actual Close: 110.73, Pred Close: 111.1
 ...
 ```
 
-![LSTM vs Actual](./plots/lstm_predictions.png)
+![LSTM vs Actual](./sources/lstm_predictions.png)
 
 ---
 
@@ -116,16 +116,6 @@ To deploy the model:
 * NumPy & Pandas
 * scikit-learn
 * Matplotlib & Seaborn
-
----
-
-## 👩🏽‍💻 Author
-
-**Favour Umejesi**
-
-* AI Extern @ [Arise & Shine Foundation](https://example.com)
-* CS Student @ Grambling State University
-* [LinkedIn](https://www.linkedin.com/in/favour-umejesi) | [GitHub](https://github.com/yourusername)
 
 ---
 
