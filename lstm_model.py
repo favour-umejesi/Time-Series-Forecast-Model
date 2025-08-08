@@ -9,6 +9,6 @@ class LSTMModel(nn.Module):
 
     def forward(self, x):
         out, _ = self.lstm(x)
-        out = out[:, -1, :]  # take last time step
+        out = out[:, -1, :]
         out = self.fc(out)
         return out
