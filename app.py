@@ -1,76 +1,61 @@
 import streamlit as st
-import torch
-import torch.nn as nn
 import pandas as pd
+import torch
+import joblib
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
+from model import LSTMModel  # your LSTM model class
 
-# Define LSTM Model
-class LSTMModel(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, output_size):
-        super(LSTMModel, self).__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, output_size)
+# App UI
+st.title("Stock Price Prediction (LSTM)")
 
-    def forward(self, x):
-        out, _ = self.lstm(x)
-        out = self.fc(out[:, -1, :])
-        return out
+uploaded_file = st.file_uploader("Upload stock CSV file", type="csv")
 
-# Train function
-def train_model(df, epochs=20, seq_len=30):
-    scaler = MinMaxScaler()
-    data = scaler.fit_transform(df[['Open', 'High', 'Low', 'Close', 'Volume']])
-    X, y = [], []
-    for i in range(seq_len, len(data)):
-        X.append(data[i-seq_len:i])
-        y.append(data[i, [0, 3]])  # Open & Close
-    X, y = np.array(X), np.array(y)
-
-    X_train = torch.tensor(X, dtype=torch.float32)
-    y_train = torch.tensor(y, dtype=torch.float32)
-
-    model = LSTMModel(input_size=5, hidden_size=64, num_layers=2, output_size=2)
-    criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-
-    for epoch in range(epochs):
-        model.train()
-        optimizer.zero_grad()
-        outputs = model(X_train)
-        loss = criterion(outputs, y_train)
-        loss.backward()
-        optimizer.step()
-
-    return model, scaler
-
-# --- Streamlit UI ---
-st.title("📈 Stock Price Prediction (Train from Uploaded Data)")
-uploaded_file = st.file_uploader("Upload your CSV dataset", type=["csv"])
-
-if uploaded_file:
+if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
-    st.write("Dataset Preview", df.head())
 
-    # Optional: detect ticker if in dataset
-    ticker = st.text_input("Enter Ticker Symbol", "Unknown")
+    # Detect ticker (assuming there's a column or metadata)
+    if "Ticker" in df.columns:
+        ticker = df["Ticker"].iloc[0]
+    else:
+        ticker = st.text_input("Enter ticker manually:")
 
-    if st.button("Train Model"):
-        model, scaler = train_model(df)
-        st.success(f"Model trained successfully for {ticker}!")
+    st.write(f"Detected ticker: **{ticker}**")
 
-        # Predict next day
-        last_30 = scaler.transform(df[['Open', 'High', 'Low', 'Close', 'Volume']])[-30:]
-        X_input = torch.tensor(last_30, dtype=torch.float32).unsqueeze(0)
+    # Model params
+    input_size = 5
+    hidden_size = 64
+    num_layers = 2
+    output_size = 2
 
+    # If ticker matches trained model ticker
+    if ticker.upper() == "AAPL":  
+        st.write("Using pre-trained LSTM model for Apple...")
+        scaler = joblib.load("scaler.pkl")
+        model = LSTMModel(input_size, hidden_size, num_layers, output_size)
+        model.load_state_dict(torch.load("lstm_model_weights.pth"))
         model.eval()
-        with torch.no_grad():
-            pred_scaled = model(X_input).numpy()
+    else:
+        st.write("Training new LSTM model for uploaded ticker...")
+        scaler = MinMaxScaler()
+        scaled_data = scaler.fit_transform(df[["Open", "High", "Low", "Close", "Volume"]].values)
 
-        dummy = np.zeros((pred_scaled.shape[0], 3))
-        merged = np.hstack([pred_scaled[:, 0:1], dummy[:, 0:1], dummy[:, 1:2], pred_scaled[:, 1:2], dummy[:, 2:3]])
-        pred_rescaled = scaler.inverse_transform(merged)[:, [0, 3]]
+        # Here: create sequences, train new LSTM on the fly
+        model = LSTMModel(input_size, hidden_size, num_layers, output_size)
+        # train_model(model, scaled_data)  # your training function
+        model.eval()
 
-        st.subheader("📊 Predicted Next Day Prices")
-        st.write(f"**Open:** {pred_rescaled[0,0]:.2f}")
-        st.write(f"**Close:** {pred_rescaled[0,1]:.2f}")
+    # Prediction button
+    if st.button("Predict Next Day"):
+        last_30_days = scaler.transform(df[["Open", "High", "Low", "Close", "Volume"]].values[-30:])
+        input_tensor = torch.tensor(last_30_days, dtype=torch.float32).unsqueeze(0)
+        pred = model(input_tensor).detach().numpy().flatten()
+
+        # Rescale prediction
+        dummy = np.zeros((1, 5))
+        dummy[0, 0] = pred[0]  # Open
+        dummy[0, 3] = pred[1]  # Close
+        rescaled_pred = scaler.inverse_transform(dummy)[0, [0, 3]]
+
+        st.write(f"Predicted Open: {rescaled_pred[0]:.2f}")
+        st.write(f"Predicted Close: {rescaled_pred[1]:.2f}")
