@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 
 class LSTMModel(nn.Module):
@@ -8,5 +9,6 @@ class LSTMModel(nn.Module):
 
     def forward(self, x):
         out, _ = self.lstm(x)
-        out = self.fc(out[:, -1, :])  # Take the last output
+        out = out[:, -1, :]  # take last time step
+        out = self.fc(out)
         return out
