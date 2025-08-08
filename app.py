@@ -1,44 +1,76 @@
 import streamlit as st
 import torch
-import numpy as np
+import torch.nn as nn
 import pandas as pd
-import joblib
-from lstm_model import LSTMModel
+import numpy as np
+from sklearn.preprocessing import MinMaxScaler
 
-# Load model
-model = LSTMModel(input_size=5, hidden_size=64, num_layers=2, output_size=2)
-model.load_state_dict(torch.load("lstm_model_weights.pth", map_location=torch.device('cpu')))
-model.eval()
+# Define LSTM Model
+class LSTMModel(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, output_size):
+        super(LSTMModel, self).__init__()
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_size, output_size)
 
-# Load scaler
-scaler = joblib.load("scaler.save")
+    def forward(self, x):
+        out, _ = self.lstm(x)
+        out = self.fc(out[:, -1, :])
+        return out
 
-st.title("📈 LSTM Stock Price Predictor")
+# Train function
+def train_model(df, epochs=20, seq_len=30):
+    scaler = MinMaxScaler()
+    data = scaler.fit_transform(df[['Open', 'High', 'Low', 'Close', 'Volume']])
+    X, y = [], []
+    for i in range(seq_len, len(data)):
+        X.append(data[i-seq_len:i])
+        y.append(data[i, [0, 3]])  # Open & Close
+    X, y = np.array(X), np.array(y)
 
-# Upload CSV
-uploaded_file = st.file_uploader("Upload stock data (CSV)", type=["csv"])
-if uploaded_file is not None:
+    X_train = torch.tensor(X, dtype=torch.float32)
+    y_train = torch.tensor(y, dtype=torch.float32)
+
+    model = LSTMModel(input_size=5, hidden_size=64, num_layers=2, output_size=2)
+    criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+    for epoch in range(epochs):
+        model.train()
+        optimizer.zero_grad()
+        outputs = model(X_train)
+        loss = criterion(outputs, y_train)
+        loss.backward()
+        optimizer.step()
+
+    return model, scaler
+
+# --- Streamlit UI ---
+st.title("📈 Stock Price Prediction (Train from Uploaded Data)")
+uploaded_file = st.file_uploader("Upload your CSV dataset", type=["csv"])
+
+if uploaded_file:
     df = pd.read_csv(uploaded_file)
-    st.write("Uploaded Data:", df.tail())
+    st.write("Dataset Preview", df.head())
 
-    # Ensure last 30 days available
-    if len(df) < 30:
-        st.warning("Need at least 30 rows of historical data.")
-    else:
-        recent_data = df[-30:][['Open', 'High', 'Low', 'Close', 'Volume']].values
-        scaled_input = scaler.transform(recent_data)
-        X = torch.tensor(scaled_input, dtype=torch.float32).unsqueeze(0)  # Shape: (1, 30, 5)
+    # Optional: detect ticker if in dataset
+    ticker = st.text_input("Enter Ticker Symbol", "Unknown")
 
+    if st.button("Train Model"):
+        model, scaler = train_model(df)
+        st.success(f"Model trained successfully for {ticker}!")
+
+        # Predict next day
+        last_30 = scaler.transform(df[['Open', 'High', 'Low', 'Close', 'Volume']])[-30:]
+        X_input = torch.tensor(last_30, dtype=torch.float32).unsqueeze(0)
+
+        model.eval()
         with torch.no_grad():
-            prediction = model(X).numpy()
+            pred_scaled = model(X_input).numpy()
 
-        # Fill dummy values to inverse transform
-        dummy = np.zeros((1, 5))
-        dummy[0, 0] = prediction[0, 0]  # Open
-        dummy[0, 3] = prediction[0, 1]  # Close
-        inv = scaler.inverse_transform(dummy)
-        pred_open, pred_close = inv[0, 0], inv[0, 3]
+        dummy = np.zeros((pred_scaled.shape[0], 3))
+        merged = np.hstack([pred_scaled[:, 0:1], dummy[:, 0:1], dummy[:, 1:2], pred_scaled[:, 1:2], dummy[:, 2:3]])
+        pred_rescaled = scaler.inverse_transform(merged)[:, [0, 3]]
 
-        st.subheader("📊 Predicted Next Day Prices:")
-        st.write(f"🔹 Predicted Open: **${pred_open:.2f}**")
-        st.write(f"🔹 Predicted Close: **${pred_close:.2f}**")
+        st.subheader("📊 Predicted Next Day Prices")
+        st.write(f"**Open:** {pred_rescaled[0,0]:.2f}")
+        st.write(f"**Close:** {pred_rescaled[0,1]:.2f}")
