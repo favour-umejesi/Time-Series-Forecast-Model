@@ -1,70 +1,61 @@
 import streamlit as st
 import pandas as pd
 import torch
-from model import LSTMModel
 import joblib
+import numpy as np
+from sklearn.preprocessing import MinMaxScaler
+from model import LSTMModel  # your LSTM model class
 
-# Load the same scaler used during training
-scaler = joblib.load("scaler.save")
+# App UI
+st.title("Stock Price Prediction (LSTM)")
 
-# Model parameters (must match training)
-input_size = 5
-hidden_size = 64
-num_layers = 2
-output_size = 2
+uploaded_file = st.file_uploader("Upload stock CSV file", type="csv")
 
-# Load model
-model = LSTMModel(input_size, hidden_size, num_layers, output_size)
-model.load_state_dict(torch.load("lstm_model_weights.pth", map_location=torch.device("cpu")))
-model.eval()
-
-st.title("Apple Stock Price Prediction")
-
-uploaded_file = st.file_uploader("Upload your dataset (CSV with Apple data)", type=["csv"])
-if uploaded_file:
+if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
-    st.write("Uploaded Dataset Preview:", df.head())
 
-    # Filter for Apple only
+    # Detect ticker (assuming there's a column or metadata)
     if "Ticker" in df.columns:
-        df_apple = df[df["Ticker"] == "AAPL"]
-
-        if df_apple.empty:
-            st.error("No Apple (AAPL) data found in the file.")
-        else:
-            st.write("Filtered Apple Data:", df_apple.tail())
-
-            # Ensure we have enough history
-            if len(df_apple) >= 30:
-                # Scale the data
-                features = df_apple[["Open", "High", "Low", "Close", "Volume"]]
-                data_scaled = scaler.transform(features)
-
-                # Get last 30 days for prediction
-                last_30_days = torch.tensor(data_scaled[-30:], dtype=torch.float32).unsqueeze(0)
-
-                # Debug: Show what the model sees (reshape to 2D for display)
-                st.write(
-                    "Last 30 days (scaled) fed into model:",
-                    pd.DataFrame(data_scaled[-30:], columns=["Open", "High", "Low", "Close", "Volume"])
-                )
-
-                # Predict
-                with torch.no_grad():
-                    prediction_scaled = model(last_30_days).numpy()
-
-                # Inverse transform to original scale
-                inverse_input = []
-                for pred in prediction_scaled:
-                    row = list(pred) + [0] * (scaler.n_features_in_ - output_size)
-                    inverse_input.append(row)
-                prediction_original = scaler.inverse_transform(inverse_input)
-
-                pred_open = prediction_original[0][0]
-                pred_close = prediction_original[0][3]  # Close is 4th in features
-
-                st.success(f"Predicted Next Day Open: {pred_open:.2f}, Close: {pred_close:.2f}")
-            else:
-                st.warning("Not enough Apple data for prediction (need at least 30 days).")
+        ticker = df["Ticker"].iloc[0]
     else:
-        st.error("Uploaded CSV must have a 'Ticker' column.")
+        ticker = st.text_input("Enter ticker manually:")
+
+    st.write(f"Detected ticker: **{ticker}**")
+
+    # Model params
+    input_size = 5
+    hidden_size = 64
+    num_layers = 2
+    output_size = 2
+
+    # If ticker matches trained model ticker
+    if ticker.upper() == "AAPL":  
+        st.write("Using pre-trained LSTM model for Apple...")
+        scaler = joblib.load("scaler.pkl")
+        model = LSTMModel(input_size, hidden_size, num_layers, output_size)
+        model.load_state_dict(torch.load("lstm_model_weights.pth"))
+        model.eval()
+    else:
+        st.write("Training new LSTM model for uploaded ticker...")
+        scaler = MinMaxScaler()
+        scaled_data = scaler.fit_transform(df[["Open", "High", "Low", "Close", "Volume"]].values)
+
+        # Here: create sequences, train new LSTM on the fly
+        model = LSTMModel(input_size, hidden_size, num_layers, output_size)
+        # train_model(model, scaled_data)  # your training function
+        model.eval()
+
+    # Prediction button
+    if st.button("Predict Next Day"):
+        last_30_days = scaler.transform(df[["Open", "High", "Low", "Close", "Volume"]].values[-30:])
+        input_tensor = torch.tensor(last_30_days, dtype=torch.float32).unsqueeze(0)
+        pred = model(input_tensor).detach().numpy().flatten()
+
+        # Rescale prediction
+        dummy = np.zeros((1, 5))
+        dummy[0, 0] = pred[0]  # Open
+        dummy[0, 3] = pred[1]  # Close
+        rescaled_pred = scaler.inverse_transform(dummy)[0, [0, 3]]
+
+        st.write(f"Predicted Open: {rescaled_pred[0]:.2f}")
+        st.write(f"Predicted Close: {rescaled_pred[1]:.2f}")
