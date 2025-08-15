@@ -2,11 +2,9 @@ import streamlit as st
 import pandas as pd
 import torch
 from model import LSTMModel
-import pickle
+import joblib
 
-# Load model and scaler
-with open("scaler.pkl", "rb") as f:
-    scaler = pickle.load(f)
+scaler = joblib.load("scaler.save")
 
 input_size = 5
 hidden_size = 64
