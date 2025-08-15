@@ -43,15 +43,17 @@ if uploaded_file:
                 # Get last 30 days for prediction
                 last_30_days = torch.tensor(data_scaled[-30:], dtype=torch.float32).unsqueeze(0)
 
-                # Debug: Show what the model sees
-                st.write("Last 30 days (scaled) fed into model:", last_30_days.numpy())
+                # Debug: Show what the model sees (reshape to 2D for display)
+                st.write(
+                    "Last 30 days (scaled) fed into model:",
+                    pd.DataFrame(data_scaled[-30:], columns=["Open", "High", "Low", "Close", "Volume"])
+                )
 
                 # Predict
                 with torch.no_grad():
                     prediction_scaled = model(last_30_days).numpy()
 
                 # Inverse transform to original scale
-                dummy_full = [[0, 0, 0, 0, 0]] * (scaler.n_features_in_ - output_size)  # padding
                 inverse_input = []
                 for pred in prediction_scaled:
                     row = list(pred) + [0] * (scaler.n_features_in_ - output_size)
