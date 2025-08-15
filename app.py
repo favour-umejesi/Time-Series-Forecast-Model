@@ -1,61 +1,47 @@
 import streamlit as st
 import pandas as pd
 import torch
-import joblib
-import numpy as np
-from sklearn.preprocessing import MinMaxScaler
-from model import LSTMModel  # your LSTM model class
+from model import LSTMModel
+import pickle
 
-# App UI
-st.title("Stock Price Prediction (LSTM)")
+# Load model and scaler
+with open("scaler.pkl", "rb") as f:
+    scaler = pickle.load(f)
 
-uploaded_file = st.file_uploader("Upload stock CSV file", type="csv")
+input_size = 5
+hidden_size = 64
+num_layers = 2
+output_size = 2
 
-if uploaded_file is not None:
+model = LSTMModel(input_size, hidden_size, num_layers, output_size)
+model.load_state_dict(torch.load("lstm_model_weights.pth", map_location=torch.device("cpu")))
+model.eval()
+
+st.title("Stock Price Prediction")
+
+uploaded_file = st.file_uploader("Upload your dataset (CSV)", type=["csv"])
+if uploaded_file:
     df = pd.read_csv(uploaded_file)
+    st.write("Uploaded Dataset Preview:", df.head())
 
-    # Detect ticker (assuming there's a column or metadata)
+    # Ensure Ticker column exists
     if "Ticker" in df.columns:
-        ticker = df["Ticker"].iloc[0]
+        ticker_options = df["Ticker"].unique().tolist()
+        selected_ticker = st.selectbox("Select Ticker:", ticker_options)
+
+        # Filter data for that ticker
+        df_ticker = df[df["Ticker"] == selected_ticker]
+
+        st.write(f"Data for {selected_ticker}:", df_ticker.head())
+
+        # Prediction logic using df_ticker
+        if len(df_ticker) >= 30:
+            data_scaled = scaler.transform(df_ticker[["Open", "High", "Low", "Close", "Volume"]])
+            last_30_days = torch.tensor(data_scaled[-30:], dtype=torch.float32).unsqueeze(0)
+            with torch.no_grad():
+                prediction = model(last_30_days).numpy()
+            st.success(f"Predicted Next Day Open: {prediction[0][0]:.2f}, Close: {prediction[0][1]:.2f}")
+        else:
+            st.warning("Not enough data for prediction (need at least 30 days).")
     else:
-        ticker = st.text_input("Enter ticker manually:")
-
-    st.write(f"Detected ticker: **{ticker}**")
-
-    # Model params
-    input_size = 5
-    hidden_size = 64
-    num_layers = 2
-    output_size = 2
-
-    # If ticker matches trained model ticker
-    if ticker.upper() == "AAPL":  
-        st.write("Using pre-trained LSTM model for Apple...")
-        scaler = joblib.load("scaler.pkl")
-        model = LSTMModel(input_size, hidden_size, num_layers, output_size)
-        model.load_state_dict(torch.load("lstm_model_weights.pth"))
-        model.eval()
-    else:
-        st.write("Training new LSTM model for uploaded ticker...")
-        scaler = MinMaxScaler()
-        scaled_data = scaler.fit_transform(df[["Open", "High", "Low", "Close", "Volume"]].values)
-
-        # Here: create sequences, train new LSTM on the fly
-        model = LSTMModel(input_size, hidden_size, num_layers, output_size)
-        # train_model(model, scaled_data)  # your training function
-        model.eval()
-
-    # Prediction button
-    if st.button("Predict Next Day"):
-        last_30_days = scaler.transform(df[["Open", "High", "Low", "Close", "Volume"]].values[-30:])
-        input_tensor = torch.tensor(last_30_days, dtype=torch.float32).unsqueeze(0)
-        pred = model(input_tensor).detach().numpy().flatten()
-
-        # Rescale prediction
-        dummy = np.zeros((1, 5))
-        dummy[0, 0] = pred[0]  # Open
-        dummy[0, 3] = pred[1]  # Close
-        rescaled_pred = scaler.inverse_transform(dummy)[0, [0, 3]]
-
-        st.write(f"Predicted Open: {rescaled_pred[0]:.2f}")
-        st.write(f"Predicted Close: {rescaled_pred[1]:.2f}")
+        st.error("Uploaded CSV must have a 'Ticker' column.")
