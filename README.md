@@ -40,20 +40,23 @@ This project implements and compares two deep learning models — LSTM and GRU �
 ```
 
 .
+.
 ├── data/
-│   └── stock\_data.csv
+│   └── stock_data.csv
 ├── models/
-│   └── lstm\_model\_weights.pth
+│   └── lstm_model_weights.pth
 ├── notebooks/
-│   └── stock\_prediction.ipynb
+│   └── stock_prediction.ipynb
 ├── scaler/
 │   └── scaler.save
-├── lstm\_model.py
-├── gru\_model.py
+├── lstm_model.py
+├── gru_model.py
 ├── train.py
 ├── evaluate.py
-└── README.md
-
+├── predictions/             <-- CSV exported from Python predictions
+│   └── predicted_stock.csv
+└── cpp_inference/
+    └── fast_inference.cpp
 ````
 
 ---
